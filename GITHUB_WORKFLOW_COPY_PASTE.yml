@@ -1,0 +1,58 @@
+name: Build LTA LABS Vol 1 - Nine VST3 Plugins
+
+on:
+  workflow_dispatch:
+
+jobs:
+  windows-vst3-bundle:
+    runs-on: windows-2022
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out all source files
+        uses: actions/checkout@v4
+
+      - name: Configure JUCE 8 and Visual Studio
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Compile all nine LTA plugins
+        run: cmake --build build --config Release --parallel 2
+
+      - name: Verify and package nine independent VST3 folders
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $names = @(
+            'LTA Skinwalker',
+            'LTA Dream Journal',
+            'LTA Moshpit',
+            'LTA Eclipse',
+            'LTA Redacted',
+            'LTA Second Sun',
+            'LTA Nightmare Fuel',
+            'LTA X-Ray',
+            'LTA False Memory'
+          )
+          $stage = Join-Path $PWD 'LTA_LABS_VOL1_VST3'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          $bundles = @(Get-ChildItem -Path 'build' -Directory -Recurse -Filter '*.vst3' |
+                       Where-Object { $_.FullName -match '[\\/]VST3[\\/]' })
+          foreach ($name in $names) {
+            $bundleName = "$name.vst3"
+            $found = @($bundles | Where-Object { $_.Name -eq $bundleName })
+            if ($found.Count -ne 1) {
+              throw "Expected one compiled $bundleName; found $($found.Count)."
+            }
+            Copy-Item -LiteralPath $found[0].FullName -Destination (Join-Path $stage $bundleName) -Recurse -Force
+          }
+          $count = @(Get-ChildItem -LiteralPath $stage -Directory -Filter '*.vst3').Count
+          if ($count -ne 9) { throw "Expected 9 VST3 bundles; got $count" }
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath 'LTA_LABS_VOL1_WINDOWS_VST3.zip' -Force
+
+      - name: Upload full LTA LABS Windows bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: LTA-LABS-VOL1-Windows-VST3
+          path: LTA_LABS_VOL1_WINDOWS_VST3.zip
+          if-no-files-found: error
+          retention-days: 30
